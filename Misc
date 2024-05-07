@@ -1,0 +1,157 @@
+import io.grpc.stub.StreamObserver;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import reactor.core.publisher.Flux;
+import reactor.test.StepVerifier;
+
+public class ReactiveBooksClientTest {
+
+    @Test
+    public void testGetBooksStream() {
+        // Create the mock stub
+        BooksServiceReactiveGrpc.BooksServiceReactiveStub mockStub = Mockito.mock(BooksServiceReactiveGrpc.BooksServiceReactiveStub.class);
+
+        // Prepare the client with the mocked stub
+        ReactiveBooksClient client = new ReactiveBooksClient(mockStub);
+
+        // Setup mocking behavior
+        Mockito.when(mockStub.getBooksStream(Mockito.any(GetBooksRequest.class), Mockito.any()))
+               .thenAnswer(invocation -> {
+                   StreamObserver<GetBooksResponse> observer = invocation.getArgument(1);
+                   observer.onNext(GetBooksResponse.newBuilder().setTitle("Mocked Book 1").build());
+                   observer.onNext(GetBooksResponse.newBuilder().setTitle("Mocked Book 2").build());
+                   observer.onCompleted();
+                   return null;
+               });
+
+        // Test the output using StepVerifier
+        Flux<String> bookTitles = client.getBooksStream(GetBooksRequest.newBuilder().build());
+        StepVerifier.create(bookTitles)
+                    .expectSubscription()
+                    .expectNext("Mocked Book 1")
+                    .expectNext("Mocked Book 2")
+                    .expectComplete()
+                    .verify();
+    }
+}
+
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+
+@Service
+public class ReactiveBooksClient {
+    private final BooksServiceReactiveGrpc.BooksServiceReactiveStub reactiveStub;
+
+    public ReactiveBooksClient(BooksServiceReactiveGrpc.BooksServiceReactiveStub stub) {
+        this.reactiveStub = stub;
+    }
+
+    public Flux<String> getBooksStream(GetBooksRequest request) {
+        return Flux.create(sink -> {
+            this.reactiveStub.getBooksStream(request, new StreamObserver<GetBooksResponse>() {
+                @Override
+                public void onNext(GetBooksResponse value) {
+                    sink.next(value.getTitle()); // Assuming getTitle() exists
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    sink.error(t);
+                }
+
+                @Override
+                public void onCompleted() {
+                    sink.complete();
+                }
+            });
+        });
+    }
+}
+#######################
+
+
+
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.grpc.stub.StreamObserver;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+
+@Service
+public class ReactiveBooksClient {
+    private final BooksServiceReactiveGrpc.BooksServiceReactiveStub reactiveStub;
+
+    public ReactiveBooksClient() {
+        ManagedChannel channel = ManagedChannelBuilder.forAddress("localhost", 80)
+                                                      .usePlaintext()
+                                                      .build();
+        this.reactiveStub = BooksServiceReactiveGrpc.newReactiveStub(channel);
+    }
+
+    public Flux<String> getBooksStream(GetBooksRequest request) {
+        return Flux.create(sink -> {
+            this.reactiveStub.getBooksStream(request, new StreamObserver<GetBooksResponse>() {
+                @Override
+                public void onNext(GetBooksResponse value) {
+                    // Assuming that GetBooksResponse has a method to get the book's title or some string representation
+                    sink.next(value.getTitle());
+                }
+
+                @Override
+                public void onError(Throwable t) {
+                    sink.error(t);
+                }
+
+                @Override
+                public void onCompleted() {
+                    sink.complete();
+                }
+            });
+        });
+    }
+}
+
+
+
+##
+
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import org.junit.jupiter.api.Test;
+import org.bson.conversions.Bson;
+import java.util.Date;
+import java.util.List;
+
+class AggregationPipelineTest {
+
+    @Test
+    void testCreateAggregationPipeline() {
+        // Prepare
+        Date asOfDate = new Date();  // You can set a specific test date here
+
+        // Execute
+        List<Bson> pipeline = YourClassName.createAggregationPipeline(asOfDate);
+
+        // Verify the stages in the pipeline
+        assertEquals(4, pipeline.size(), "Pipeline should contain exactly four stages.");
+
+        // Match stage
+        assertEquals("{ \"$match\" : { \"doc.payload.json.core.bookIds\" : { \"$in\" : [123, 456] } } }",
+            pipeline.get(0).toString());
+
+        // AsOf match stage
+        assertEquals("{ \"$match\" : { \"$and\" : [{ \"doc.validFrom\" : { \"$lte\" : " + asOfDate + " } }, { \"doc.InsertTime\" : { \"$lte\" : " + asOfDate + " } }] } }",
+            pipeline.get(1).toString());
+
+        // Sort stage
+        assertEquals("{ \"$sort\" : { \"doc.validFrom\" : -1, \"doc.InsertTime\" : -1 } }",
+            pipeline.get(2).toString());
+
+        // Limit stage
+        assertEquals("{ \"$limit\" : 1 }", pipeline.get(3).toString());
+    }
+}
+
+
