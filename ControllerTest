@@ -1,3 +1,52 @@
+import org.springframework.web.bind.annotation.*;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Flux;
+import com.example.grpc.GetBooksRequest;
+import com.google.protobuf.Timestamp;
+import java.util.List;
+
+@RestController
+public class ReactiveBooksController {
+    private final ReactiveBooksClient booksClient;
+
+    public ReactiveBooksController(ReactiveBooksClient booksClient) {
+        this.booksClient = booksClient;
+    }
+
+    @PostMapping(value = "/api/reactive/books", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> getBooks(
+            @RequestParam List<String> bookIds,
+            @RequestParam(required = false) String validDate,
+            @RequestParam(required = false) String bizDate,
+            @RequestParam(defaultValue = "false") boolean dataType) {
+
+        try {
+            Timestamp bizTimestamp = bizDate == null || bizDate.trim().isEmpty()
+                                      ? TimestampUtil.createCurrentTimestamp()
+                                      : TimestampUtil.parseTimestamp(bizDate);
+            Timestamp validTimestamp = validDate == null || validDate.trim().isEmpty()
+                                       ? TimestampUtil.createCurrentTimestamp()
+                                       : TimestampUtil.parseTimestamp(validDate);
+
+            GetBooksRequest request = GetBooksRequest.newBuilder()
+                    .addAllBookIds(bookIds)
+                    .setValidDate(validTimestamp)
+                    .setBizDate(bizTimestamp)
+                    .setDataType(dataType)
+                    .build();
+
+            return booksClient.getBooksStream(request)
+                              .map(response -> ServerSentEvent.<String>builder().data(response.toString()).build())
+                              .onErrorResume(e -> Flux.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Error processing request", e)));
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid input", e);
+        }
+    }
+}
+
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
