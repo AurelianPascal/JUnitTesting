@@ -1,0 +1,82 @@
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Flux;
+import com.example.grpc.GetBooksResponse;
+
+@WebFluxTest(ReactiveBooksController.class)
+public class ReactiveBooksControllerTest {
+
+    @Autowired
+    private WebTestClient webTestClient;
+
+    @MockBean
+    private ReactiveBooksClient booksClient;
+
+    @BeforeEach
+    void setUp() {
+        GetBooksResponse response = GetBooksResponse.newBuilder()
+                                                    .setMessage("Success")
+                                                    .build();
+        Mockito.when(booksClient.getBooksStream(Mockito.any()))
+               .thenReturn(Flux.just(response));
+    }
+
+    @Test
+    void testGetBooks_Successful() {
+        webTestClient.post()
+                     .uri("/api/reactive/books?bookIds=1&bookIds=2&dataType=false")
+                     .accept(MediaType.TEXT_EVENT_STREAM)
+                     .exchange()
+                     .expectStatus().isOk()
+                     .expectHeader().contentType(MediaType.TEXT_EVENT_STREAM)
+                     .expectBody(String.class)
+                     .consumeWith(response -> {
+                         assertTrue(response.getResponseBody().contains("Success"));
+                     });
+    }
+
+    @Test
+    void testGetBooks_InvalidDate() {
+        webTestClient.post()
+                     .uri("/api/reactive/books?bookIds=1&bookIds=2&validDate=not-a-date")
+                     .accept(MediaType.TEXT_EVENT_STREAM)
+                     .exchange()
+                     .expectStatus().isBadRequest()
+                     .expectBody(String.class)
+                     .consumeWith(response -> {
+                         assertTrue(response.getResponseBody().contains("Invalid input"));
+                     });
+    }
+
+    @Test
+    void testGetBooks_MissingRequiredParameters() {
+        webTestClient.post()
+                     .uri("/api/reactive/books?dataType=false")
+                     .accept(MediaType.TEXT_EVENT_STREAM)
+                     .exchange()
+                     .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void testGetBooks_ErrorDuringProcessing() {
+        // Simulate an error in the backend service
+        Mockito.when(booksClient.getBooksStream(Mockito.any()))
+               .thenReturn(Flux.error(new RuntimeException("Unexpected error")));
+
+        webTestClient.post()
+                     .uri("/api/reactive/books?bookIds=1&bookIds=2&dataType=false")
+                     .accept(MediaType.TEXT_EVENT_STREAM)
+                     .exchange()
+                     .expectStatus().is5xxServerError()
+                     .expectBody(String.class)
+                     .consumeWith(response -> {
+                         assertTrue(response.getResponseBody().contains("Error processing request"));
+                     });
+    }
+}
